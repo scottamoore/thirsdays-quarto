@@ -50,15 +50,31 @@ crossref:
 ```{r setup, include=FALSE}
 # Setup chunk - runs but doesn't show in output
 # Creates connection used throughout this report
+
+# After downloading this project from GitHub, you will need to do the following:
+# 1. Within the project folder (thirsdays-quarto), create
+#    the following two folders:
+#    - irdw
+#    - images
+# 2. Ensure that the packages below are installed. 
+# 3. Download the data and put it in the irdw folder. 
+#.   https://drive.google.com/file/d/1fNE1JfB0EKDy7-xChfm2KuBadLlwXequ/view?usp=sharing
+
 library(duckdb)
 library(tidyverse)
 library(DBI)
 library(here)
 library(skimr)
-library(nicetables)
 library(tidymodels)
-library(themefurmanu)
+# You might have to install this:
+# install.packages("devtools")
+# Install from GitHub:
+# devtools::install_github("scottamoore/nicetables")
 library(nicetables)
+# Install from GitHub:
+# devtools::install_github("scottamoore/themefurmanu")
+# Site: https://github.com/scottamoore/themefurmanu
+library(themefurmanu)
 
 source(here("code", "define_connect_to_irdata.R"))
 source(here("code", "warehouse", "readers.R"))
@@ -94,6 +110,8 @@ save_graph <- function(graph, file_name) {
     dpi = 300)
 }
 ```
+
+This project is a demonstration of using Quarto (with embedded `R` code) to create analytical reports. The data is fake data generated to resemble real student data.
 
 # Data
 
