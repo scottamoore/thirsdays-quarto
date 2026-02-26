@@ -1,0 +1,879 @@
+---
+title: "Sample Quarto Analytical Report"
+subtitle: Investigation of grades data
+author: 
+  -   name: David Eubanks
+      affiliation: 
+        - name: Furman University
+          url: https://www.furman.edu
+      url: https://www.furman.edu/people/david-eubanks/
+  -   name: Scott Moore
+      affiliation: 
+        - name: Palmetto Insights
+          url: https://palmettoinsights.com
+      url: https://palmettoinsights.com/about/
+date: last-modified
+date-format: long
+highlight-style: pygments
+execute:
+  message: FALSE
+  warning: FALSE
+  echo: FALSE
+  eval: TRUE
+format: 
+  html:
+    anchor-sections: true
+    number-sections: true
+    toc: true
+    code-fold: false
+    link-external-icon: true
+    link-external-newwindow: true
+    code-block-border-left: "#582C83"
+    code-block-bg: true
+    code-line-numbers: true
+    cap-location: top
+  pdf:
+    anchor-sections: true 
+    toc: true
+    toc-depth: 2
+  docx: 
+    anchor-sections: true
+    toc: true
+    toc-depth: 2
+
+crossref:
+  fig-prefix: "Figure"
+  lst-prefix: "Listing"
+
+---
+
+```{r setup, include=FALSE}
+# Setup chunk - runs but doesn't show in output
+# Creates connection used throughout this report
+library(duckdb)
+library(tidyverse)
+library(DBI)
+library(here)
+library(skimr)
+library(nicetables)
+library(tidymodels)
+library(themefurmanu)
+library(nicetables)
+
+source(here("code", "define_connect_to_irdata.R"))
+source(here("code", "warehouse", "readers.R"))
+source(here("code", "exploration_functions.R"))
+source(here("code", "transformations", "helpers.R"))
+
+con_irdata <- connect_to_irdata()
+
+percent1 <- function(x, ...) {
+  scales::percent(x, accuracy = 0.1)
+}
+
+comma1 <- function(x, ...) {
+  scales::comma(x, accuracy = 1, ...)
+}
+
+comma01 <- function(x, ...) {
+  scales::comma(x, accuracy = 0.01, ...)
+}
+
+# Clean up connection when chapter finishes rendering
+knitr::knit_hooks$set(document = function(x) {
+  dbDisconnect(con_irdata, shutdown = TRUE)
+  x
+})
+
+save_graph <- function(graph, file_name) {
+  ggsave(
+    here("images", file_name), 
+    plot = graph, 
+    width = 8, 
+    height = 6, 
+    dpi = 300)
+}
+```
+
+# Data
+
+## Describe data {#sec-describe_data}
+
+We get all the data that we need from the IR warehouse&mdash;specifically, the tables `student` (@sec-describe_student), `enrollment` (@sec-describe_enrollment), `applicant` (@sec-describe_applicant), `course` (@sec-describe_course), and `course_section` (@sec-describe_course_section) in the `warehouse` schema. These tables have already been imported from data sources around the university and then transformed and cleaned in the warehouse, so we can read them directly into `R` and start working with them.
+
+Let's start by describing each of these tables to understand what data they contain and how they are structured.
+
+### Table: `warehouse.student` {#sec-describe_student}
+
+```{r}
+#| label: describe_tables_irdata_student_stats
+#| eval: true
+#| echo: false
+
+table_info <- table_stats(con_irdata, table_name = "student",
+            schema_name = "warehouse")
+num_rows <- table_info |> pull(n_rows)
+num_cols <- table_info |> pull(n_columns)
+num_nas <- table_info |> pull(num_nulls)
+perc_nas <- table_info |> pull(perc_nulls)
+```
+
+The table `warehouse.student` has `r comma1(num_rows)` rows and `r comma1(num_cols)` columns. There are `r comma1(num_nas)` missing values`r if(num_nas > 0) paste0(", which is ", round(perc_nas, 2), "% of the data in this table.") else "."`
+
+```{r}
+#| label: tbl-describe_tables_irdata_student
+#| tbl-cap: "Table statistics: `warehouse.student`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+describe_table(con_irdata, table_name = "student",
+               schema_name = "warehouse") |> 
+  nice_table(
+    col.names = c("Column Name", "Data Type", "Example value",
+      "Minimum value", "Maximum value"),
+    align = c("l", "l", "r", "r", "r"),
+    font_size = 12
+  )
+```
+
+```{r}
+#| label: tbl-describe_tables_irdata_student_nulls
+#| tbl-cap: "Null value assessment: `warehouse.student`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+if (num_nas > 0) {
+  assess_nulls(con_irdata, "warehouse.student") |>
+    filter(null_count > 0) |>
+    nice_table(
+      col.names = c("Column Name", "# Nulls", "% Nulls",
+        "Status"),
+      align = c("l", "r", "r", "l"),
+      font_size = 12
+    )
+} else {
+  cat("*There are no missing values in this table.*")
+}
+```
+
+### Table: `warehouse.enrollment` {#sec-describe_enrollment}
+
+```{r}
+#| label: describe_tables_irdata_enrollment_stats
+#| eval: true
+#| echo: false
+table_info <- table_stats(con_irdata, table_name = "enrollment",
+            schema_name = "warehouse")
+num_rows <- table_info |> pull(n_rows)
+num_cols <- table_info |> pull(n_columns)
+num_nas <- table_info |> pull(num_nulls)
+perc_nas <- table_info |> pull(perc_nulls)
+
+```
+
+The table `warehouse.enrollment` has `r comma1(num_rows)` rows and `r comma1(num_cols)` columns. There are `r comma1(num_nas)` missing values`r if(num_nas > 0) paste0(", which is ", round(perc_nas, 2), "% of the data in this table.") else "."`
+
+```{r}
+#| label: tbl-describe_tables_irdata_enrollment
+#| tbl-cap: "Table statistics: `warehouse.enrollment`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+describe_table(con_irdata, table_name = "enrollment",
+               schema_name = "warehouse") |> 
+  nice_table(
+    col.names = c("Column Name", "Data Type", "Example value",
+      "Minimum value", "Maximum value"),
+    align = c("l", "l", "r", "r", "r"),
+    font_size = 12
+  )
+```
+
+```{r}
+#| label: tbl-describe_tables_irdata_enrollment_nulls
+#| tbl-cap: "Null value assessment: `warehouse.enrollment`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+if (num_nas > 0) {
+  assess_nulls(con_irdata, "warehouse.enrollment") |>
+    filter(null_count > 0) |>
+    nice_table(
+      col.names = c("Column Name", "# Nulls", "% Nulls",
+        "Status"),
+      align = c("l", "r", "r", "l"),
+      font_size = 12
+    )
+} else {
+  cat("*There are no missing values in this table.*")
+}
+```
+
+### Table: `warehouse.applicant` {#sec-describe_applicant}
+
+```{r}
+#| label: describe_tables_irdata_applicant_stats
+#| eval: true
+#| echo: false
+table_info <- table_stats(con_irdata, table_name = "applicant",
+            schema_name = "warehouse")
+num_rows <- table_info |> pull(n_rows)
+num_cols <- table_info |> pull(n_columns)
+num_nas <- table_info |> pull(num_nulls)
+perc_nas <- table_info |> pull(perc_nulls)
+```
+
+The table `warehouse.applicant` has `r comma1(num_rows)` rows and `r comma1(num_cols)` columns. There are `r comma1(num_nas)` missing values`r if(num_nas > 0) paste0(", which is ", round(perc_nas, 2), "% of the data in this table.") else "."`
+
+```{r}
+#| label: tbl-describe_tables_irdata_applicant
+#| tbl-cap: "Table statistics: `warehouse.applicant`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+describe_table(con_irdata, table_name = "applicant",
+               schema_name = "warehouse") |> 
+  nice_table(
+    col.names = c("Column Name", "Data Type", "Example value",
+      "Minimum value", "Maximum value"),
+    align = c("l", "l", "r", "r", "r"),
+    font_size = 12
+  )
+```
+
+```{r}
+#| label: tbl-describe_tables_irdata_applicant_nulls
+#| tbl-cap: "Null value assessment: `warehouse.applicant`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+if (num_nas > 0) {
+  assess_nulls(con_irdata, "warehouse.applicant") |>
+    filter(null_count > 0) |>
+    nice_table(
+      col.names = c("Column Name", "# Nulls", "% Nulls",
+        "Status"),
+      align = c("l", "r", "r", "l"),
+      font_size = 12
+    )
+} else {
+  cat("*There are no missing values in this table.*")
+}
+```
+
+### Table: `warehouse.course` {#sec-describe_course}
+
+```{r}
+#| label: describe_tables_irdata_course_stats
+#| eval: true
+#| echo: false
+table_info <- table_stats(con_irdata, table_name = "course",
+            schema_name = "warehouse")
+num_rows <- table_info |> pull(n_rows)
+num_cols <- table_info |> pull(n_columns)
+num_nas <- table_info |> pull(num_nulls)
+perc_nas <- table_info |> pull(perc_nulls)
+```
+
+The table `warehouse.course` has `r comma1(num_rows)` rows and `r comma1(num_cols)` columns. There are `r comma1(num_nas)` missing values`r if(num_nas > 0) paste0(", which is ", round(perc_nas, 2), "% of the data in this table.") else "."`
+
+```{r}
+#| label: tbl-describe_tables_irdata_course
+#| tbl-cap: "Table statistics: `warehouse.course`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+describe_table(con_irdata, table_name = "course",
+               schema_name = "warehouse") |> 
+  nice_table(
+    col.names = c("Column Name", "Data Type", "Example value",
+      "Minimum value", "Maximum value"),
+    align = c("l", "l", "r", "r", "r"),
+    font_size = 12
+  )
+```
+
+```{r}
+#| label: tbl-describe_tables_irdata_course_nulls
+#| tbl-cap: "Null value assessment: `warehouse.course`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+if (num_nas > 0) {
+  assess_nulls(con_irdata, "warehouse.course") |>
+    filter(null_count > 0) |>
+    nice_table(
+      col.names = c("Column Name", "# Nulls", "% Nulls",
+        "Status"),
+      align = c("l", "r", "r", "l"),
+      font_size = 12
+    )
+} else {
+  cat("*There are no missing values in this table.*")
+}
+```
+
+### Table: `warehouse.course_section` {#sec-describe_course_section}
+
+```{r}
+#| label: describe_tables_irdata_course_section_stats
+#| eval: true
+#| echo: false
+table_info <- table_stats(con_irdata, table_name = "course_section",
+            schema_name = "warehouse")
+num_rows <- table_info |> pull(n_rows)
+num_cols <- table_info |> pull(n_columns)
+num_nas <- table_info |> pull(num_nulls)
+perc_nas <- table_info |> pull(perc_nulls)
+```
+
+The table `warehouse.course_section` has `r comma1(num_rows)` rows and `r comma1(num_cols)` columns. There are `r comma1(num_nas)` missing values`r if(num_nas > 0) paste0(", which is ", round(perc_nas, 2), "% of the data in this table.") else "."`
+
+```{r}
+#| label: tbl-describe_tables_irdata_course_section
+#| tbl-cap: "Table statistics: `warehouse.course_section`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+describe_table(con_irdata, table_name = "course_section",
+               schema_name = "warehouse") |> 
+  nice_table(
+    col.names = c("Column Name", "Data Type", "Example value",
+      "Minimum value", "Maximum value"),
+    align = c("l", "l", "r", "r", "r"),
+    font_size = 12
+  )
+```
+
+```{r}
+#| label: tbl-describe_tables_irdata_course_section_nulls
+#| tbl-cap: "Null value assessment: `warehouse.course_section`"
+#| eval: true
+#| echo: false
+#| output: asis
+
+if (num_nas > 0) {
+  assess_nulls(con_irdata, "warehouse.course_section") |>
+    filter(null_count > 0) |>
+    nice_table(
+      col.names = c("Column Name", "# Nulls", "% Nulls",
+        "Status"),
+      align = c("l", "r", "r", "l"),
+      font_size = 12
+    )
+} else {
+  cat("*There are no missing values in this table.*")
+}
+```
+
+## Read in data {#sec-read_data}
+
+The first step in our process is to read the data from the IR warehouse into `R`. Again, we do not have to do any cleaning or transformation at this stage because the data in the warehouse has already been cleaned and transformed, so we can read it directly into `R` and start working with it.
+
+```{r}
+#| label: read_tables_irdata
+#| eval: true
+#| echo: false
+
+student <- read_from_warehouse(con_irdata, "student")
+enrollment <- read_from_warehouse(con_irdata, "enrollment")
+applicant <- read_from_warehouse(con_irdata, "applicant")
+course <- read_from_warehouse(con_irdata, "course")
+course_section <- 
+  read_from_warehouse(
+    con_irdata, 
+    "course_section"
+    )
+```
+
+## Transform data
+
+While the data in the warehouse has already been cleaned and transformed, we still need to do some additional transformations to get it into a format that is suitable for the analysis required by this report. Specifically, we need to bring the student information together from the `student` and `applicant` tables, and we need to bring the grade information together from the `enrollment`, `course_section`, and `course` tables.
+
+### Bring student information together
+
+Our first step is to extract *just* the information about students that we need for our analysis from the `student` table, and then join it with the relevant information from the `applicant` table. We will use a left join starting with the `student` table here because we want information about all students but not necessarily all applicants.
+
+```{r}
+#| label: transform_student_irdata
+
+student <- student |>
+  select(
+    univ_id, admit_id, recruitment_year, 
+    gender, student_type, is_in_state, first_term_id) |>
+  left_join(
+    applicant |> 
+      select(admit_id, test_score, sat_score, act_score, hs_gpa, 
+             num_rec_ltrs),
+    join_by(admit_id == admit_id)) |>
+  select(-admit_id)
+```
+
+We have information about `r comma1(nrow(student))` students from the years `r min(student$recruitment_year)` to `r max(student$recruitment_year)`.
+
+### Bring grade information together
+
+Our next step is to extract the grade information that we need for our analysis from the `enrollment` table, and then join it with the relevant information from the `course_section` and `course` tables. We will use left joins here starting with the `enrollment` table because we want information about all students in all courses and information about all of *those* courses.
+
+```{r}
+#| label: transform_grades_irdata
+
+grades <- enrollment |>
+  select(
+    univ_id, course_section_id, grade_pts
+  ) |>
+  filter(!is.na(grade_pts)) |>
+  left_join(
+    course_section |> 
+      select(course_section_id, course_id, subject_id, 
+        term_id, credits),
+    join_by(course_section_id == course_section_id)
+  ) |>
+  left_join(
+    course |>
+      select(course_id, course_number, audience),
+    join_by(course_id == course_id)
+  ) |>
+  select(-course_section_id) |>
+  distinct()
+```
+
+We now have information about `r comma1(nrow(grades))` grades in courses taken by students, which represent `r comma1(length(unique(grades$univ_id)))` unique students enrolled in `r comma1(length(unique(grades$course_id)))` unique courses.
+
+### Show all data
+
+This is the data that we have gathered so far. We will use this data to create an analytic dataset for our analysis and modeling in the next sections.
+
+#### `student` data frame
+
+```{r}
+#| label: glimpse_tables_irdata_student
+#| eval: true
+#| echo: false
+
+glimpse(student)
+```
+
+#### `grades` data frame
+
+```{r}
+#| label: glimpse_tables_irdata_grades
+#| eval: true
+#| echo: false
+
+glimpse(grades)
+```
+
+### Create analytic dataset
+
+We have three steps to take at this point:
+
+1. Our goal is to create a model that will predict a student's GPA for their first two terms at the university, so we need to filter the `grades` data frame to include only grades from courses taken in those first two terms.
+
+```{r}
+#| label: analytic_dataset_irdata_first_year_grades
+
+df <- student |>
+  left_join(
+    grades,
+    join_by(univ_id == univ_id)
+  ) |>
+  filter(term_id <= first_term_id + 1) |>
+  arrange(univ_id, first_term_id, term_id) |>
+  distinct()
+```
+
+2. Next, we need to summarize the grade information for each student to calculate their GPA for those first two terms. 
+
+```{r}
+#| label: analytic_dataset_irdata_summary_grades
+
+summary_grades <- df |>
+  group_by(univ_id) |>
+  summarize(
+    num_courses = n(),
+    total_credits = sum(credits, na.rm = TRUE),
+    total_grade_pts = sum(grade_pts * credits, na.rm = TRUE),
+    gpa = total_grade_pts / total_credits
+  ) |>
+  ungroup()
+```
+
+3. Finally, we need to join this summarized grade information back to the `student` data frame to create our final analytic dataset that we will use for our analysis and modeling.
+
+```{r}
+#| label: analytic_dataset_irdata_final
+
+data_set <- student |>
+  left_join(
+    summary_grades,
+    join_by(univ_id)
+  ) |>
+  filter(num_courses > 0) |>
+  distinct()
+glimpse(data_set)
+```
+
+
+```{r}
+#| label: tbl-analytic_dataset_irdata_nulls
+#| tbl-cap: "Null value assessment: analytic dataset"
+#| eval: true
+#| echo: false
+#| output: asis
+
+assess_table_nulls(data_set) |> 
+  filter(any_null > 0) |>
+  nice_table(
+    font_size = 12,
+    col.names = c("Column Name", "# rows", "# nulls", "% nulls", "<NA>", "blank", "space", "none")
+  )
+```
+
+# Variable distributions
+
+Our analysis is going to use the following variables:
+
+- `gpa`: the target variable that we want to predict
+- `test_score`: the student's standardized test score (SAT or ACT)
+- `hs_gpa`: the student's high school GPA
+- `num_rec_ltrs`: the number of recommendation letters submitted with the student's application
+- `gender`: the student's gender
+
+```{r}
+#| label: test_score_distribution
+#| echo: false
+graph_file_name <- "test_score_distribution"
+full_file_name <- paste0(graph_file_name, ".png")
+the_graph <- data_set |>
+  ggplot(aes(x = test_score)) +
+  geom_histogram(
+    binwidth = 0.1, 
+    fill = "#582C83", 
+    color = "white",
+    alpha = 0.7) +
+  labs(
+    title = "Distribution of Test Scores",
+    x = "Test Score",
+    y = "Count",
+    caption = paste0("file: ", full_file_name)
+  ) +
+  theme_furmanu() +
+  theme(panel.grid.minor.x = element_blank())
+
+the_graph
+save_graph(the_graph, full_file_name)
+```
+
+```{r}
+#| label: hs_gpa_distribution
+#| echo: false
+graph_file_name <- "hs_gpa_distribution"
+full_file_name <- paste0(graph_file_name, ".png")
+the_graph <- data_set |>
+  ggplot(aes(x = hs_gpa)) +
+  geom_histogram(
+    binwidth = 0.1, 
+    fill = "#582C83", 
+    color = "white",
+    alpha = 0.7) +
+  labs(
+    title = "Distribution of High School GPA",
+    x = "High School GPA",
+    y = "Count",
+    caption = paste0("file: ", full_file_name)
+  ) +
+  theme_furmanu() +
+  theme(panel.grid.minor.x = element_blank())
+
+the_graph
+save_graph(the_graph, full_file_name)
+```
+
+```{r}
+#| label: num_rec_ltrs_distribution
+#| echo: false
+graph_file_name <- "num_rec_ltrs_distribution"
+full_file_name <- paste0(graph_file_name, ".png")
+the_graph <- data_set |>
+  ggplot(aes(x = num_rec_ltrs)) +
+  geom_histogram(
+    binwidth = 1, 
+    fill = "#582C83", 
+    color = "white",
+    alpha = 0.7) +
+  labs(
+    title = "Distribution of # of Recommendation Letters",
+    x = "Number of Recommendation Letters",
+    y = "Count",
+    caption = paste0("file: ", full_file_name)
+  ) +
+  theme_furmanu() +
+  theme(panel.grid.minor.x = element_blank())
+
+the_graph
+save_graph(the_graph, full_file_name)
+```
+
+```{r}
+#| label: gpa_distribution
+#| echo: false
+graph_file_name <- "gpa_distribution"
+full_file_name <- paste0(graph_file_name, ".png")
+the_graph <- data_set |>
+  ggplot(aes(x = gpa)) +
+  geom_histogram(
+    binwidth = 0.1, 
+    fill = "#582C83", 
+    color = "white",
+    alpha = 0.7) +
+  labs(
+    title = "Distribution of GPA",
+    x = "GPA",
+    y = "Count",
+    caption = paste0("file: ", full_file_name)
+  ) +
+  theme_furmanu() +
+  theme(panel.grid.minor.x = element_blank())
+
+the_graph
+save_graph(the_graph, full_file_name)
+```
+
+```{r}
+#| label: gender_distribution
+#| echo: false
+graph_file_name <- "gender_distribution"
+full_file_name <- paste0(graph_file_name, ".png")
+the_graph <- data_set |>
+  ggplot(aes(x = gender)) +
+  geom_bar(
+    fill = "#582C83", 
+    color = "white",
+    alpha = 0.7) +
+  labs(
+    title = "Distribution of Gender",
+    x = "Gender",
+    y = "Count",
+    caption = paste0("file: ", full_file_name)
+  ) +
+  theme_furmanu() +
+  theme(panel.grid.minor.x = element_blank())
+
+the_graph
+save_graph(the_graph, full_file_name)
+```
+
+
+# Build predictive model
+
+We are building a predictive model to predict a student's GPA for their first two terms at the university based on their standardized test score, high school GPA, number of recommendation letters, and gender. We will use the `tidymodels` framework to build this model, which allows us to easily try different modeling approaches while keeping the same data preprocessing steps. We will fit both a linear regression model and a random forest model to the same data using the same preprocessing recipe, then compare the results.
+
+## Prepare data for modeling {#sec-prepare_model_data}
+
+```{r}
+#| label: prepare_gpa_model_data
+
+# Select only the variables we need and remove rows with
+# missing values
+model_data <- data_set |>
+  select(test_score, hs_gpa, num_rec_ltrs, gender, gpa) |>
+  drop_na()
+
+# Split data into training and testing sets
+set.seed(42)  # For reproducibility
+gpa_split <- initial_split(model_data, prop = 0.8, strata = gpa)
+gpa_train <- training(gpa_split)
+gpa_test <- testing(gpa_split)
+```
+
+The data set has `r comma1(nrow(data_set))` rows, but only `r comma1(nrow(model_data))` have complete data for the variables we want to use in our model. This is a common issue in real-world data and highlights the importance of data cleaning and preparation before modeling.
+
+The training set has `r comma1(nrow(gpa_train))` rows, and the test set has `r comma1(nrow(gpa_test))` rows. We will use the training set to fit our model and the test set to evaluate its performance on unseen data.
+
+
+## Create a recipe {#sec-create_recipe}
+
+A *recipe* in `tidymodels` is a set of instructions for how to preprocess the data before fitting a model. It allows us to specify the transformations we want to apply to our predictors (e.g., standardization, creating dummy variables) in a way that can be easily applied to both the training and test data and can be used across different models. This helps keep our modeling code clean and organized. 
+
+In our case, we will create a recipe that standardizes the numeric predictors (`test_score`, `hs_gpa`, `num_rec_ltrs`) and converts the `gender` factor variable into dummy variables.
+
+```{r}
+#| label: gpa_recipe
+
+gpa_recipe <- 
+  recipe(gpa ~ test_score + hs_gpa + num_rec_ltrs + gender, 
+         data = gpa_train) |>
+  # Standardize numeric predictors
+  step_normalize(test_score, hs_gpa, num_rec_ltrs) |>  
+  # Convert gender factor to dummy variables
+  step_dummy(gender, one_hot = FALSE)  
+
+```
+
+
+## Specify the model
+
+One of the powerful aspects of `tidymodels` is how easy it is to try different models while keeping the same recipe (defined in @sec-create_recipe). Let's fit both a *linear regression model* anda *random forest model* to the same data using the same preprocessing recipe, then compare the results.
+
+
+```{r}
+#| label: gpa_model_spec
+
+# Specify that we're using a linear regression model
+gpa_model <- linear_reg() |>
+  set_engine("lm")
+# Specify a random forest model instead of linear regression
+gpa_rf_model <- rand_forest(mtry = 3, trees = 100, min_n = 5) |>
+  set_engine("ranger", importance = "impurity") |>
+  set_mode("regression")
+
+# Create the workflow --- that is, combine the 
+# recipe and model specification
+gpa_workflow <- workflow() |>
+  add_recipe(gpa_recipe) |>
+  add_model(gpa_model)
+# Create a new workflow with the same recipe but different model
+gpa_rf_workflow <- workflow() |>
+  add_recipe(gpa_recipe) |>
+  add_model(gpa_rf_model)
+
+# Fit the model to the training data (actually runs the model)
+gpa_fit <- gpa_workflow |>
+  fit(data = gpa_train)
+# Fit the random forest model to the training data
+gpa_rf_fit <- gpa_rf_workflow |>
+  fit(data = gpa_train)
+```
+
+## View results of both models
+
+We can look at a high-level summary of both models. For the linear regression model, we will look at the coefficients and significance of each predictor. For the random forest model, we will look at variable importance to see which predictors are most influential in predicting GPA.
+
+### Linear regression model summary
+
+Let's extract the actual fitted linear regression model (that we created just above) from the workflow (`extract_fit_parsnip()` and `pluck()`) and then summarize it to see the coefficients and significance of each predictor.
+
+```{r}
+#| label: gpa_model_summary
+
+gpa_fit |> extract_fit_parsnip() |> pluck("fit") |> summary()
+```
+
+### Random Forest variable importance
+
+This clearly shows that the most important predictor in the random forest model is `hs_gpa`, followed by `test_score` and then `num_rec_ltrs`. Anything other than the `hs_gpa` ad `test_score` variables has very little effect on the predictions in the random forest model.
+
+```{r}
+#| label: gpa_rf_model_summary
+
+# For random forest, we look at variable importance instead
+# of coefficients
+gpa_rf_fit |> 
+  extract_fit_parsnip() |> 
+  pluck("fit") |>
+  vip::vip(aesthetics = list(fill = "#582C83")) +
+  labs(
+    title = "Variable Importance",
+    subtitle = "Random Forest Model") +
+  theme_furmanu()
+```
+
+## Evaluate both models on test data
+
+We have now fitted both a linear regression model and a random forest model to the training data, and we have looked at the coefficients and variable importance for each model. The next step is to evaluate how well each model performs on unseen data by using the test set that we created in @sec-prepare_model_data. In theory, the predictions from the model on the test set should be very close to the actual values of GPA for those students if the model is performing well. 
+
+```{r}
+#| label: evaluate_gpa_model
+
+# Linear regression predictions
+gpa_predictions_lr <- predict(gpa_fit, gpa_test) |>
+  bind_cols(gpa_test) |>
+  mutate(model = "Linear Regression")
+# Random forest predictions
+gpa_predictions_rf <- predict(gpa_rf_fit, gpa_test) |>
+  bind_cols(gpa_test) |>
+  mutate(model = "Random Forest")
+
+# Linear regression metrics
+gpa_metrics_lr <- gpa_predictions_lr |>
+  metrics(truth = gpa, estimate = .pred)
+# Random Forest metrics
+gpa_metrics_rf <- gpa_predictions_rf |>
+  metrics(truth = gpa, estimate = .pred)
+```
+
+## Model metrics
+
+The main metrics we will look at for evaluating our regression models are:
+
+- `rmse`: Root Mean Squared Error, which measures the average magnitude of the errors between predicted and actual values (lower is better)
+- `rsq`: R-squared, which measures the proportion of variance in the target variable that is explained by the model (higher is better)
+- `mae`: Mean Absolute Error, which measures the average absolute difference between predicted and actual values (lower is better)
+
+### Linear regression model metrics
+
+```{r}
+#| label: compare_gpa_models
+#| echo: false
+
+print(gpa_metrics_lr)
+```
+
+### Random Forest model metrics
+
+```{r}
+#| label: compare_gpa_models_rf
+#| echo: false
+
+print(gpa_metrics_rf)
+```
+
+### Interpretation of these results
+
+The linear regression model slightly outperforms the random forest on these test metrics (lower RMSE and MAE, higher RSQ), though both have room for improvement since they only explain ~43-48% of GPA variance.
+
+## Visualize predictions
+
+Let's take a quick look at how the predictions from both models compare to the actual GPA values in the test set. Here are two scatter plots of predicted vs actual GPA for both models to visually assess how well they are performing.
+
+```{r}
+#| label: combine_gpa_predictions
+#| echo: false
+
+gpa_predictions <- bind_rows(gpa_predictions_lr, gpa_predictions_rf)
+```
+
+
+```{r}
+#| label: gpa_predictions_plot
+#| echo: false
+
+gpa_predictions |>
+  ggplot(aes(x = gpa, y = .pred, color = model)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.8) +
+  geom_abline(
+    intercept = 0, 
+    slope = 1, 
+    linetype = "dashed", 
+    color = "gray50") +
+  labs(
+    title = "GPA: Predicted vs Actual (Model Comparison)",
+    x = "Actual GPA",
+    y = "Predicted GPA",
+    color = "Model"
+  ) +
+  theme_furmanu() +
+  coord_equal(xlim = c(1, 4), ylim = c(1, 4)) +
+  facet_wrap(~model)
+```

@@ -1,0 +1,80 @@
+# Quarto output
+_book/
+*.html
+*.pdf
+/.quarto/
+_freeze
+irdw/
+
+
+# R files
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# R package development
+*.tar.gz
+*.Rcheck/
+
+# R OAuth and environment
+.httr-oauth
+.Renviron
+
+# knitr and R markdown cache
+*_cache/
+/cache/
+
+# Temporary files created by R markdown
+*.utf8.md
+*.knit.md
+
+# RStudio Connect folder
+rsconnect/
+
+# Vignettes
+vignettes/*.html
+vignettes/*.pdf
+
+# pkgdown site
+docs/
+
+# translation temp files
+po/*~
+
+# Temporary files
+*~
+.DS_Store
+Thumbs.db
+
+# Data files (ignore large CSVs, track small examples)
+data/*.csv
+!data/example-*.csv
+!data/sample-*.csv
+data/*.xlsx
+data/*.rds
+data/*.rda
+irdw/*
+code/sample_report_files/*
+images/*
+
+# TeX intermediate files (if keep-tex is true)
+*.aux
+*.log
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# IDE specific
+.vscode/
+.idea/
+
+**/*.quarto_ipynb
+
+/.luarc.json
+_freeze/chapters/03a-creating-the-actual-data-warehouse/execute-results/tex.json

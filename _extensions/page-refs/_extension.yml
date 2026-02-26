@@ -1,0 +1,8 @@
+name: page-refs
+title: Page References
+author: Your Name
+version: 1.0.0
+quarto-min-version: "1.3"
+contributes:
+  filters:
+    - pageref.lua
