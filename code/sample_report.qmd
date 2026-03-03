@@ -18,13 +18,14 @@ highlight-style: pygments
 execute:
   message: FALSE
   warning: FALSE
-  echo: FALSE
+  echo: TRUE
   eval: TRUE
-format: 
+format:
   html:
-    anchor-sections: true
-    number-sections: true
+    anchor-sections: TRUE
+    number-sections: TRUE
     toc: true
+    toc-depth: 3
     code-fold: false
     link-external-icon: true
     link-external-newwindow: true
@@ -111,7 +112,7 @@ save_graph <- function(graph, file_name) {
 }
 ```
 
-This project is a demonstration of using Quarto (with embedded `R` code) to create analytical reports. The data is fake data generated to resemble real student data.
+This project is a demonstration of using **Quarto** (with embedded `R` code) to create analytical reports. The data is *fake*, generated to resemble real student data. If you want to know more about `R`, then you should check out [rforir](https://rforir.netlify.app){target="_blank"}. 
 
 # Data
 
@@ -430,8 +431,8 @@ student <- student |>
     gender, student_type, is_in_state, first_term_id) |>
   left_join(
     applicant |> 
-      select(admit_id, test_score, sat_score, act_score, hs_gpa, 
-             num_rec_ltrs),
+      select(admit_id, test_score, sat_score, act_score,
+             hs_gpa, num_rec_ltrs),
     join_by(admit_id == admit_id)) |>
   select(-admit_id)
 ```
@@ -495,7 +496,7 @@ glimpse(grades)
 
 We have three steps to take at this point:
 
-1. Our goal is to create a model that will predict a student's GPA for their first two terms at the university, so we need to filter the `grades` data frame to include only grades from courses taken in those first two terms.
+1. Our goal is to create a model that will predict a student's GPA for their **first two terms** at the university, so we need to filter the `grades` data frame to include only grades from courses taken in those first two terms.
 
 ```{r}
 #| label: analytic_dataset_irdata_first_year_grades
@@ -520,7 +521,8 @@ summary_grades <- df |>
   summarize(
     num_courses = n(),
     total_credits = sum(credits, na.rm = TRUE),
-    total_grade_pts = sum(grade_pts * credits, na.rm = TRUE),
+    total_grade_pts = sum(grade_pts * credits, 
+                          na.rm = TRUE),
     gpa = total_grade_pts / total_credits
   ) |>
   ungroup()
@@ -709,7 +711,11 @@ model_data <- data_set |>
 
 # Split data into training and testing sets
 set.seed(42)  # For reproducibility
-gpa_split <- initial_split(model_data, prop = 0.8, strata = gpa)
+gpa_split <- 
+  initial_split(
+    model_data, 
+    prop = 0.8, 
+    strata = gpa)
 gpa_train <- training(gpa_split)
 gpa_test <- testing(gpa_split)
 ```
@@ -751,7 +757,8 @@ One of the powerful aspects of `tidymodels` is how easy it is to try different m
 gpa_model <- linear_reg() |>
   set_engine("lm")
 # Specify a random forest model instead of linear regression
-gpa_rf_model <- rand_forest(mtry = 3, trees = 100, min_n = 5) |>
+gpa_rf_model <- 
+  rand_forest(mtry = 3, trees = 100, min_n = 5) |>
   set_engine("ranger", importance = "impurity") |>
   set_mode("regression")
 
@@ -760,12 +767,14 @@ gpa_rf_model <- rand_forest(mtry = 3, trees = 100, min_n = 5) |>
 gpa_workflow <- workflow() |>
   add_recipe(gpa_recipe) |>
   add_model(gpa_model)
-# Create a new workflow with the same recipe but different model
+# Create a new workflow with the same recipe but different 
+# model
 gpa_rf_workflow <- workflow() |>
   add_recipe(gpa_recipe) |>
   add_model(gpa_rf_model)
 
-# Fit the model to the training data (actually runs the model)
+# Fit the model to the training data (actually runs 
+# the model)
 gpa_fit <- gpa_workflow |>
   fit(data = gpa_train)
 # Fit the random forest model to the training data
@@ -784,7 +793,10 @@ Let's extract the actual fitted linear regression model (that we created just ab
 ```{r}
 #| label: gpa_model_summary
 
-gpa_fit |> extract_fit_parsnip() |> pluck("fit") |> summary()
+gpa_fit |> 
+  extract_fit_parsnip() |>
+  pluck("fit") |>
+  summary()
 ```
 
 ### Random Forest variable importance
@@ -794,8 +806,8 @@ This clearly shows that the most important predictor in the random forest model 
 ```{r}
 #| label: gpa_rf_model_summary
 
-# For random forest, we look at variable importance instead
-# of coefficients
+# For random forest, we look at variable importance
+# instead of coefficients
 gpa_rf_fit |> 
   extract_fit_parsnip() |> 
   pluck("fit") |>
@@ -877,7 +889,7 @@ gpa_predictions <- bind_rows(gpa_predictions_lr, gpa_predictions_rf)
 #| echo: false
 
 gpa_predictions |>
-  ggplot(aes(x = gpa, y = .pred, color = model)) +
+  ggplot(aes(y = gpa, x = .pred, color = model)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.8) +
   geom_abline(
